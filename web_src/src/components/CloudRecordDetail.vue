@@ -1,13 +1,15 @@
 <template>
 	<div id="recordDetail">
 		<el-container>
+
       <el-aside width="300px">
+
         <div class="record-list-box-box">
           <el-date-picker size="mini" v-model="chooseDate" :picker-options="pickerOptions" type="date" value-format="yyyy-MM-dd" placeholder="日期" @change="dateChange()"></el-date-picker>
           <div class="record-list-box" :style="recordListStyle">
             <ul v-if="detailFiles.length >0" class="infinite-list record-list" v-infinite-scroll="infiniteScroll" >
-              <li v-for="item in detailFiles" class="infinite-list-item record-list-item" @click="chooseFile(item)">
-                <el-tag v-if="choosedFile != item">
+              <li v-for="item in detailFiles" class="infinite-list-item record-list-item" >
+                <el-tag v-if="choosedFile != item" @click="chooseFile(item)">
                   <i class="el-icon-video-camera"  ></i>
                   {{ item.substring(0,17)}}
                 </el-tag>
@@ -15,6 +17,7 @@
                   <i class="el-icon-video-camera"  ></i>
                   {{ item.substring(0,17)}}
                 </el-tag>
+                <a class="el-icon-download" style="color: #409EFF;font-weight: 600;margin-left: 10px;" :href="`${basePath}/download.html?url=record/${recordFile.app}/${recordFile.stream}/${chooseDate}/${item}`" target="_blank" />
               </li>
             </ul>
           </div>
@@ -74,7 +77,7 @@
               <li class="task-list-item" v-for="item in taskListEnded">
                 <div class="task-list-item-box" style="height: 2rem;line-height: 2rem;">
                   <span>{{ item.startTime.substr(10) }}-{{item.endTime.substr(10)}}</span>
-                  <a class="el-icon-download download-btn" :href="basePath + '/' + item.recordFile" download >
+                  <a class="el-icon-download download-btn" :href="basePath  + '/download.html?url=../' + item.recordFile" target="_blank">
                   </a>
                 </div>
               </li>
@@ -102,7 +105,7 @@
 
 <script>
   // TODO 根据查询的时间列表设置滑轨的最大值与最小值，
-	import uiHeader from './UiHeader.vue'
+	import uiHeader from '../layout/UiHeader.vue'
 	import player from './dialog/easyPlayer.vue'
   import moment  from 'moment'
 	export default {
@@ -110,10 +113,10 @@
 		components: {
 			uiHeader, player
 		},
-    props: ['recordFile', 'mediaServer', 'dateFiles'],
+    props: ['recordFile', 'mediaServerId', 'dateFiles', 'mediaServerPath'],
 		data() {
 			return {
-        basePath: process.env.NODE_ENV === 'development'?`${location.origin}/debug/zlm`:`${location.origin}/zlm`,
+        basePath: `${this.mediaServerPath}`,
 			  dateFilesObj: [],
 			  detailFiles: [],
         chooseDate: null,
@@ -238,7 +241,7 @@
         let that = this;
         that.$axios({
           method: 'get',
-          url:`/record_proxy/${that.mediaServer.generalMediaServerId}/api/record/file/list`,
+          url:`/record_proxy/${that.mediaServerId}/api/record/file/list`,
           params: {
             app: that.recordFile.app,
             stream: that.recordFile.stream,
@@ -248,8 +251,10 @@
             count: that.count
           }
         }).then(function (res) {
-          that.total = res.data.data.total;
-          that.detailFiles = that.detailFiles.concat(res.data.data.list);
+          if (res.data.code === 0) {
+            that.total = res.data.data.total;
+            that.detailFiles = that.detailFiles.concat(res.data.data.list);
+          }
           that.loading = false;
           if (callback) callback();
         }).catch(function (error) {
@@ -263,7 +268,7 @@
           this.videoUrl = "";
         }else {
 			    // TODO 控制列表滚动条
-          this.videoUrl = `${this.basePath}/${this.mediaServer.recordAppName}/${this.recordFile.app}/${this.recordFile.stream}/${this.chooseDate}/${this.choosedFile}`
+          this.videoUrl = `${this.basePath}/record/${this.recordFile.app}/${this.recordFile.stream}/${this.chooseDate}/${this.choosedFile}`
           console.log(this.videoUrl)
         }
 
@@ -312,13 +317,13 @@
         let that = this;
         this.$axios({
           method: 'delete',
-          url:`/record_proxy/${that.mediaServer.generalMediaServerId}/api/record/delete`,
+          url:`/record_proxy/${that.mediaServerId}/api/record/delete`,
           params: {
             page: that.currentPage,
             count: that.count
           }
         }).then(function (res) {
-          if (res.data.code == 0) {
+          if (res.data.code === 0) {
             that.total = res.data.data.total;
             that.recordList = res.data.data.list;
           }
@@ -331,7 +336,7 @@
         that.dateFilesObj = {};
         this.$axios({
           method: 'get',
-          url:`/record_proxy/${that.mediaServer.generalMediaServerId}/api/record/date/list`,
+          url:`/record_proxy/${that.mediaServerId}/api/record/date/list`,
           params: {
             app: that.recordFile.app,
             stream: that.recordFile.stream
@@ -380,7 +385,7 @@
         let that = this;
         this.$axios({
           method: 'get',
-          url:`/record_proxy/${that.mediaServer.generalMediaServerId}/api/record/file/download/task/add`,
+          url:`/record_proxy/${that.mediaServerId}/api/record/file/download/task/add`,
           params: {
             app: that.recordFile.app,
             stream: that.recordFile.stream,
@@ -388,7 +393,7 @@
             endTime: moment(this.taskTimeRange[1]).format('YYYY-MM-DD HH:mm:ss'),
           }
         }).then(function (res) {
-          if (res.data.code === 0 && res.data.msg === "success") {
+          if (res.data.code === 0 ) {
             that.showTaskBox = false
             that.getTaskList(false);
           }else {
@@ -405,12 +410,12 @@
         let that = this;
         this.$axios({
           method: 'get',
-          url:`/record_proxy/${that.mediaServer.generalMediaServerId}/api/record/file/download/task/list`,
+          url:`/record_proxy/${that.mediaServerId}/api/record/file/download/task/list`,
           params: {
             isEnd: isEnd,
           }
         }).then(function (res) {
-          if (res.data.code == 0) {
+          if (res.data.code === 0) {
             if (isEnd){
               that.taskListEnded = res.data.data;
             }else {
@@ -420,6 +425,9 @@
         }).catch(function (error) {
           console.log(error);
         });
+      },
+      goBack(){
+        this.$router.push('/cloudRecord');
       }
 		}
 	};

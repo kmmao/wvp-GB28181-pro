@@ -1,65 +1,61 @@
 <template>
-	<div id="app">
-		<el-container>
-			<el-header>
-				<uiHeader></uiHeader>
-			</el-header>
-			<el-main>
-        <div style="background-color: #FFFFFF; margin-bottom: 1rem; position: relative; padding: 0.5rem; text-align: left;">
-          <span style="font-size: 1rem; font-weight: bold;">云端录像</span>
-          <div style="position: absolute; right: 1rem; top: 0.3rem;">
-            <el-button v-if="!recordDetail" icon="el-icon-refresh-right" circle size="mini" :loading="loading" @click="getRecordList()"></el-button>
-            <el-button v-if="recordDetail" icon="el-icon-arrow-left" circle size="mini" @click="backToList()"></el-button>
-          </div>
-        </div>
-        <div v-if="!recordDetail">
-          <div style="background-color: #FFFFFF; margin-bottom: 1rem; position: relative; padding: 0.5rem; text-align: left;font-size: 14px;">
-            节点选择: <el-select size="mini" @change="chooseMediaChange" style="width: 16rem; margin-right: 1rem;" v-model="mediaServer" placeholder="请选择" default-first-option>
-            <el-option
-              v-for="item in mediaServerList"
-              :key="item.generalMediaServerId"
-              :label="item.generalMediaServerId + '( ' + item.wanIp + ' )'"
-              :value="item">
-            </el-option>
-          </el-select>
-          </div>
-          <!--设备列表-->
-          <el-table :data="recordList" border style="width: 100%" :height="winHeight">
-            <el-table-column prop="app" label="应用名" align="center">
-            </el-table-column>
-            <el-table-column prop="stream" label="流ID" align="center">
-            </el-table-column>
-            <el-table-column prop="time" label="时间" align="center">
-            </el-table-column>
-            <el-table-column label="操作" width="360" align="center" fixed="right">
-              <template slot-scope="scope">
-                <el-button-group>
-                  <el-button size="mini" icon="el-icon-video-camera-solid" type="primary" @click="showRecordDetail(scope.row)">查看</el-button>
-<!--                  <el-button size="mini" icon="el-icon-delete" type="danger"  @click="deleteRecord(scope.row)">删除</el-button>-->
-                </el-button-group>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-pagination
-            style="float: right"
-            @size-change="handleSizeChange"
-            @current-change="currentChange"
-            :current-page="currentPage"
-            :page-size="count"
-            :page-sizes="[15, 25, 35, 50]"
-            layout="total, sizes, prev, pager, next"
-            :total="total">
-          </el-pagination>
-        </div>
-        <cloud-record-detail ref="cloudRecordDetail" v-if="recordDetail" :recordFile="chooseRecord" :mediaServer="mediaServer" ></cloud-record-detail>
-			</el-main>
-		</el-container>
-	</div>
+	<div id="app" style="width: 100%">
+    <div class="page-header">
+      <div class="page-title">
+        <el-page-header v-if="recordDetail" @back="backToList" content="云端录像"></el-page-header>
+        <div v-if="!recordDetail">云端录像</div>
+      </div>
+
+      <div class="page-header-btn">
+        节点选择:
+        <el-select size="mini" @change="chooseMediaChange" style="width: 16rem; margin-right: 1rem;" v-model="mediaServerId" placeholder="请选择" :disabled="recordDetail">
+          <el-option
+            v-for="item in mediaServerList"
+            :key="item.id"
+            :label="item.id"
+            :value="item.id">
+          </el-option>
+        </el-select>
+        <el-button v-if="!recordDetail" icon="el-icon-refresh-right" circle size="mini" :loading="loading" @click="getRecordList()"></el-button>
+      </div>
+    </div>
+    <div v-if="!recordDetail">
+
+      <!--设备列表-->
+      <el-table :data="recordList" style="width: 100%" :height="winHeight">
+        <el-table-column prop="app" label="应用名" >
+        </el-table-column>
+        <el-table-column prop="stream" label="流ID" >
+        </el-table-column>
+        <el-table-column prop="time" label="时间" >
+        </el-table-column>
+        <el-table-column label="操作" width="360"  fixed="right">
+          <template slot-scope="scope">
+            <el-button size="medium" icon="el-icon-folder-opened" type="text" @click="showRecordDetail(scope.row)">查看</el-button>
+            <!--                  <el-button size="mini" icon="el-icon-delete" type="danger"  @click="deleteRecord(scope.row)">删除</el-button>-->
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-pagination
+        style="float: right"
+        @size-change="handleSizeChange"
+        @current-change="currentChange"
+        :current-page="currentPage"
+        :page-size="count"
+        :page-sizes="[15, 25, 35, 50]"
+        layout="total, sizes, prev, pager, next"
+        :total="total">
+      </el-pagination>
+    </div>
+    <cloud-record-detail ref="cloudRecordDetail" v-if="recordDetail" :recordFile="chooseRecord" :mediaServerId="mediaServerId" :mediaServerPath="mediaServerPath" ></cloud-record-detail>
+
+  </div>
 </template>
 
 <script>
-	import uiHeader from './UiHeader.vue'
+	import uiHeader from '../layout/UiHeader.vue'
 	import cloudRecordDetail from './CloudRecordDetail.vue'
+  import MediaServer from './service/MediaServer'
 	export default {
 		name: 'app',
 		components: {
@@ -68,7 +64,8 @@
 		data() {
 			return {
         mediaServerList: [], // 滅体节点列表
-        mediaServer: null, // 媒体服务
+        mediaServerId: null, // 媒体服务
+        mediaServerPath: null, // 媒体服务地址
         recordList: [], // 设备列表
         chooseRecord: null, // 媒体服务
 
@@ -78,6 +75,7 @@
         count:15,
         total:0,
         loading: false,
+        mediaServerObj : new MediaServer(),
         recordDetail: false
 
 			};
@@ -107,34 +105,45 @@
       },
       getMediaServerList: function (){
         let that = this;
-        this.$axios({
-          method: 'get',
-          url:`/api/server/media_server/list`,
-        }).then(function (res) {
-          console.log(res)
-          that.mediaServerList = res.data;
+        that.mediaServerObj.getOnlineMediaServerList((data)=>{
+          that.mediaServerList = data.data;
           if (that.mediaServerList.length > 0) {
-            that.mediaServer = that.mediaServerList[0]
+            that.mediaServerId = that.mediaServerList[0].id
+            that.setMediaServerPath(that.mediaServerId);
             that.getRecordList();
           }
-
-        }).catch(function (error) {
-          console.log(error);
-        });
+        })
+      },
+      setMediaServerPath: function (serverId) {
+        let that = this;
+        let i;
+        for (i = 0; i < that.mediaServerList.length; i++) {
+          if (serverId === that.mediaServerList[i].id) {
+            break;
+          }
+        }
+        let port = that.mediaServerList[i].httpPort;
+        if (location.protocol === "https:" && that.mediaServerList[i].httpSSlPort) {
+          port = that.mediaServerList[i].httpSSlPort
+        }
+        that.mediaServerPath = location.protocol + "//" + that.mediaServerList[i].streamIp + ":" + port
+        console.log(that.mediaServerPath)
       },
       getRecordList: function (){
         let that = this;
         this.$axios({
           method: 'get',
-          url:`/record_proxy/${that.mediaServer.generalMediaServerId}/api/record/list`,
+          url:`/record_proxy/${that.mediaServerId}/api/record/list`,
           params: {
             page: that.currentPage,
             count: that.count
           }
         }).then(function (res) {
           console.log(res)
-          that.total = res.data.data.total;
-          that.recordList = res.data.data.list;
+          if (res.data.code === 0) {
+            that.total = res.data.data.total;
+            that.recordList = res.data.data.list;
+          }
           that.loading = false;
         }).catch(function (error) {
           console.log(error);
@@ -146,7 +155,9 @@
       },
       chooseMediaChange(val){
           console.log(val)
-          this.mediaServer = val;
+          this.total = 0;
+          this.recordList = [];
+          this.setMediaServerPath(val);
           this.getRecordList();
       },
       showRecordDetail(row){
@@ -181,12 +192,14 @@
           }
         }).then(function (res) {
           console.log(res)
-          that.total = res.data.data.total;
-          that.recordList = res.data.data.list;
+          if (res.data.code === 0) {
+            that.total = res.data.data.total;
+            that.recordList = res.data.data.list;
+          }
         }).catch(function (error) {
           console.log(error);
         });
-      }
+      },
 
 
 		}

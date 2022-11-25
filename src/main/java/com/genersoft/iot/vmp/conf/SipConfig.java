@@ -1,79 +1,102 @@
 package com.genersoft.iot.vmp.conf;
 
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
+import org.springframework.util.ObjectUtils;
 
-@Configuration("sipConfig")
+@Component
+@ConfigurationProperties(prefix = "sip", ignoreInvalidFields = true)
 public class SipConfig {
 
-	@Value("${sip.ip}")
-	private String sipIp;
+	private String ip;
 
-	/**
-	 * 默认使用sip.ip
-	 */
-	@Value("${sip.monitor-ip:0.0.0.0}")
-	private String monitorIp;
+	private Integer port;
 
-	@Value("${sip.port}")
-	private Integer sipPort;
+	private String domain;
 
-	@Value("${sip.domain}")
-	private String sipDomain;
+	private String id;
 
-	@Value("${sip.id}")
-	private String sipId;
-
-	@Value("${sip.password}")
-	private String sipPassword;
+	private String password;
 	
-	@Value("${sip.ptz.speed:50}")
-	Integer speed;
+	Integer ptzSpeed = 50;
 
-	@Value("${sip.keepalive-timeout:180}")
-	Integer keepaliveTimeOut;
+	Integer registerTimeInterval = 120;
 
-	@Value("${sip.register-time-interval:60}")
-	Integer registerTimeInterval;
+	private boolean alarm;
 
-	public String getMonitorIp() {
-		return monitorIp;
+	public void setIp(String ip) {
+		this.ip = ip;
 	}
 
-	public String getSipIp() {
-		return sipIp;
+	public void setPort(Integer port) {
+		this.port = port;
 	}
 
-
-	public Integer getSipPort() {
-		return sipPort;
+	public void setDomain(String domain) {
+		this.domain = domain;
 	}
 
-
-	public String getSipDomain() {
-		return sipDomain;
+	public void setId(String id) {
+		this.id = id;
 	}
 
-
-	public String getSipId() {
-		return sipId;
+	public void setPassword(String password) {
+		this.password = password;
 	}
 
-	public String getSipPassword() {
-		return sipPassword;
+	public void setPtzSpeed(Integer ptzSpeed) {
+		this.ptzSpeed = ptzSpeed;
 	}
 
 
-	public Integer getSpeed() {
-		return speed;
+	public void setRegisterTimeInterval(Integer registerTimeInterval) {
+		this.registerTimeInterval = registerTimeInterval;
 	}
 
-	public Integer getKeepaliveTimeOut() {
-		return keepaliveTimeOut;
+	public String getIp() {
+		return ip;
+	}
+
+
+	public Integer getPort() {
+		return port;
+	}
+
+
+	public String getDomain() {
+		return domain;
+	}
+
+
+	public String getId() {
+		return id;
+	}
+
+	public String getPassword() {
+		return password;
+	}
+
+
+	public Integer getPtzSpeed() {
+		return ptzSpeed;
 	}
 
 	public Integer getRegisterTimeInterval() {
 		return registerTimeInterval;
+	}
+
+	public boolean isAlarm() {
+		return alarm;
+	}
+
+	public void setAlarm(boolean alarm) {
+		this.alarm = alarm;
+	}
+
+	public void getLocalIp(String deviceLocalIp) {
+		if (ObjectUtils.isEmpty(deviceLocalIp)) {
+
+		}
 	}
 }

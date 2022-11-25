@@ -1,32 +1,25 @@
 package com.genersoft.iot.vmp.gb28181;
 
-import java.text.ParseException;
-import java.util.Properties;
-import java.util.TooManyListenersException;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-
-import javax.sip.*;
-import javax.sip.header.CallIdHeader;
-import javax.sip.message.Response;
-
-import com.genersoft.iot.vmp.gb28181.event.SipSubscribe;
+import com.genersoft.iot.vmp.conf.SipConfig;
+import com.genersoft.iot.vmp.gb28181.conf.DefaultProperties;
+import com.genersoft.iot.vmp.gb28181.transmit.ISIPProcessorObserver;
+import gov.nist.javax.sip.SipProviderImpl;
+import gov.nist.javax.sip.SipStackImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.DependsOn;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.util.ObjectUtils;
 
-import com.genersoft.iot.vmp.conf.SipConfig;
-import com.genersoft.iot.vmp.gb28181.transmit.SIPProcessorFactory;
-import com.genersoft.iot.vmp.gb28181.transmit.response.ISIPResponseProcessor;
-
-import gov.nist.javax.sip.SipStackImpl;
+import javax.sip.*;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
-public class SipLayer implements SipListener {
+@Order(value=1)
+public class SipLayer implements CommandLineRunner {
 
 	private final static Logger logger = LoggerFactory.getLogger(SipLayer.class);
 
@@ -34,202 +27,119 @@ public class SipLayer implements SipListener {
 	private SipConfig sipConfig;
 
 	@Autowired
-	private SIPProcessorFactory processorFactory;
+	private ISIPProcessorObserver sipProcessorObserver;
 
-	@Autowired
-	private SipSubscribe sipSubscribe;
 
-	private SipStack sipStack;
+
+	private final Map<String, SipProviderImpl> tcpSipProviderMap = new ConcurrentHashMap<>();
+	private final Map<String, SipProviderImpl> udpSipProviderMap = new ConcurrentHashMap<>();
 
 	private SipFactory sipFactory;
 
-	/**   
-	 * 消息处理器线程池
-	 */
-	private ThreadPoolExecutor processThreadPool;
+	@Override
+	public void run(String... args) {
+		List<String> monitorIps = new ArrayList<>();
+		// 使用逗号分割多个ip
+		String separator = ",";
+		if (sipConfig.getIp().indexOf(separator) > 0) {
+			String[] split = sipConfig.getIp().split(separator);
+			monitorIps.addAll(Arrays.asList(split));
+		}else {
+			monitorIps.add(sipConfig.getIp());
+		}
 
-	@Bean("initSipServer")
-	private ThreadPoolExecutor initSipServer() {
-		
-		int processThreadNum = Runtime.getRuntime().availableProcessors() * 10;
-		LinkedBlockingQueue<Runnable> processQueue = new LinkedBlockingQueue<Runnable>(10000);
-		processThreadPool = new ThreadPoolExecutor(processThreadNum,processThreadNum,
-				0L,TimeUnit.MILLISECONDS,processQueue,
-				new ThreadPoolExecutor.CallerRunsPolicy());
-		return processThreadPool;
-	}
-	
-	@Bean("sipFactory")
-	@DependsOn("initSipServer")
-	private SipFactory createSipFactory() {
 		sipFactory = SipFactory.getInstance();
 		sipFactory.setPathName("gov.nist");
+		if (monitorIps.size() > 0) {
+			for (String monitorIp : monitorIps) {
+				addListeningPoint(monitorIp, sipConfig.getPort());
+			}
+			if (udpSipProviderMap.size() + tcpSipProviderMap.size() == 0) {
+				System.exit(1);
+			}
+		}
+	}
+
+	private void addListeningPoint(String monitorIp, int port){
+		SipStackImpl sipStack;
+		try {
+			sipStack = (SipStackImpl)sipFactory.createSipStack(DefaultProperties.getProperties(monitorIp, false));
+		} catch (PeerUnavailableException e) {
+			logger.error("[Sip Server] SIP服务启动失败， 监听地址{}失败,请检查ip是否正确", monitorIp);
+			return;
+		}
+
+		try {
+			ListeningPoint tcpListeningPoint = sipStack.createListeningPoint(monitorIp, port, "TCP");
+			SipProviderImpl tcpSipProvider = (SipProviderImpl)sipStack.createSipProvider(tcpListeningPoint);
+
+			tcpSipProvider.setDialogErrorsAutomaticallyHandled();
+			tcpSipProvider.addSipListener(sipProcessorObserver);
+			tcpSipProviderMap.put(monitorIp, tcpSipProvider);
+
+			logger.info("[Sip Server] tcp://{}:{} 启动成功", monitorIp, port);
+		} catch (TransportNotSupportedException
+				 | TooManyListenersException
+				 | ObjectInUseException
+				 | InvalidArgumentException e) {
+			logger.error("[Sip Server] tcp://{}:{} SIP服务启动失败,请检查端口是否被占用或者ip是否正确"
+					, monitorIp, port);
+		}
+
+		try {
+			ListeningPoint udpListeningPoint = sipStack.createListeningPoint(monitorIp, port, "UDP");
+
+			SipProviderImpl udpSipProvider = (SipProviderImpl)sipStack.createSipProvider(udpListeningPoint);
+			udpSipProvider.addSipListener(sipProcessorObserver);
+
+			udpSipProviderMap.put(monitorIp, udpSipProvider);
+
+			logger.info("[Sip Server] udp://{}:{} 启动成功", monitorIp, port);
+		} catch (TransportNotSupportedException
+				 | TooManyListenersException
+				 | ObjectInUseException
+				 | InvalidArgumentException e) {
+			logger.error("[Sip Server] udp://{}:{} SIP服务启动失败,请检查端口是否被占用或者ip是否正确"
+					, monitorIp, port);
+		}
+	}
+
+	public SipFactory getSipFactory() {
 		return sipFactory;
 	}
-	
-	@Bean("sipStack")
-	@DependsOn({"initSipServer", "sipFactory"})
-	private SipStack createSipStack() throws PeerUnavailableException {
-		Properties properties = new Properties();
-		properties.setProperty("javax.sip.STACK_NAME", "GB28181_SIP");
-		properties.setProperty("javax.sip.IP_ADDRESS", sipConfig.getMonitorIp());
-		properties.setProperty("gov.nist.javax.sip.LOG_MESSAGE_CONTENT", "false");
-		/**
-		 * sip_server_log.log 和 sip_debug_log.log public static final int TRACE_NONE =
-		 * 0; public static final int TRACE_MESSAGES = 16; public static final int
-		 * TRACE_EXCEPTION = 17; public static final int TRACE_DEBUG = 32;
-		 */
-		properties.setProperty("gov.nist.javax.sip.TRACE_LEVEL", "0");
-		properties.setProperty("gov.nist.javax.sip.SERVER_LOG", "sip_server_log");
-		properties.setProperty("gov.nist.javax.sip.DEBUG_LOG", "sip_debug_log");
-		sipStack = (SipStackImpl) sipFactory.createSipStack(properties);
-		return sipStack;
-	}
 
-	@Bean("tcpSipProvider")
-	@DependsOn("sipStack")
-	private SipProvider startTcpListener() {
-		ListeningPoint tcpListeningPoint = null;
-		SipProvider tcpSipProvider  = null;
-		try {
-			tcpListeningPoint = sipStack.createListeningPoint(sipConfig.getMonitorIp(), sipConfig.getSipPort(), "TCP");
-			tcpSipProvider = sipStack.createSipProvider(tcpListeningPoint);
-			tcpSipProvider.addSipListener(this);
-			logger.info("Sip Server TCP 启动成功 port {" + sipConfig.getSipPort() + "}");
-		} catch (TransportNotSupportedException | InvalidArgumentException | TooManyListenersException | ObjectInUseException e) {
-			logger.error(String.format("创建SIP服务失败: %s", e.getMessage()));
+	public SipProviderImpl getUdpSipProvider(String ip) {
+		if (ObjectUtils.isEmpty(ip)) {
+			return null;
 		}
-		return tcpSipProvider;
-	}
-	
-	@Bean("udpSipProvider")
-	@DependsOn("sipStack")
-	private SipProvider startUdpListener() throws Exception {
-		ListeningPoint udpListeningPoint = sipStack.createListeningPoint(sipConfig.getMonitorIp(), sipConfig.getSipPort(), "UDP");
-		SipProvider udpSipProvider = sipStack.createSipProvider(udpListeningPoint);
-		udpSipProvider.addSipListener(this);
-		logger.info("Sip Server UDP 启动成功 port {" + sipConfig.getSipPort() + "}");
-		return udpSipProvider;
+		return udpSipProviderMap.get(ip);
 	}
 
-	/**
-	 * SIP服务端接收消息的方法 Content 里面是GBK编码 This method is called by the SIP stack when a
-	 * new request arrives.
-	 */
-	@Override
-	public void processRequest(RequestEvent evt) {
-//		logger.debug(evt.getRequest().toString());
-		// 由于jainsip是单线程程序，为提高性能并发处理
-		processThreadPool.execute(() -> {
-			if (processorFactory != null) {
-				processorFactory.createRequestProcessor(evt).process();
-			}
-		});
-	}
-
-	@Override
-	public void processResponse(ResponseEvent evt) {
-		Response response = evt.getResponse();
-//		logger.debug(evt.getResponse().toString());
-		int status = response.getStatusCode();
-		if (((status >= 200) && (status < 300)) || status == 401) { // Success!
-			ISIPResponseProcessor processor = processorFactory.createResponseProcessor(evt);
-			try {
-				processor.process(evt, this, sipConfig);
-			} catch (ParseException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			if (evt.getResponse() != null && sipSubscribe.getOkSubscribesSize() > 0 ) {
-				CallIdHeader callIdHeader = (CallIdHeader)evt.getResponse().getHeader(CallIdHeader.NAME);
-				if (callIdHeader != null) {
-					SipSubscribe.Event subscribe = sipSubscribe.getOkSubscribe(callIdHeader.getCallId());
-					if (subscribe != null) {
-						subscribe.response(evt);
-					}
-				}
-			}
-		} else if ((status >= 100) && (status < 200)) {
-			// 增加其它无需回复的响应，如101、180等
-		} else {
-			logger.warn("接收到失败的response响应！status：" + status + ",message:" + response.getReasonPhrase()/* .getContent().toString()*/);
-			if (evt.getResponse() != null && sipSubscribe.getErrorSubscribesSize() > 0 ) {
-				CallIdHeader callIdHeader = (CallIdHeader)evt.getResponse().getHeader(CallIdHeader.NAME);
-				if (callIdHeader != null) {
-					SipSubscribe.Event subscribe = sipSubscribe.getErrorSubscribe(callIdHeader.getCallId());
-					if (subscribe != null) {
-						subscribe.response(evt);
-					}
-				}
-			}
+	public SipProviderImpl getUdpSipProvider() {
+		if (udpSipProviderMap.size() != 1) {
+			return null;
 		}
-
-
-
+		return udpSipProviderMap.values().stream().findFirst().get();
 	}
 
-	/**
-	 * <p>
-	 * Title: processTimeout
-	 * </p>
-	 * <p>
-	 * Description:
-	 * </p>
-	 * 
-	 * @param timeoutEvent
-	 */
-	@Override
-	public void processTimeout(TimeoutEvent timeoutEvent) {
-		// TODO Auto-generated method stub
-
+	public SipProviderImpl getTcpSipProvider() {
+		if (tcpSipProviderMap.size() != 1) {
+			return null;
+		}
+		return tcpSipProviderMap.values().stream().findFirst().get();
 	}
 
-	/**
-	 * <p>
-	 * Title: processIOException
-	 * </p>
-	 * <p>
-	 * Description:
-	 * </p>
-	 * 
-	 * @param exceptionEvent
-	 */
-	@Override
-	public void processIOException(IOExceptionEvent exceptionEvent) {
-		// TODO Auto-generated method stub
-
+	public SipProviderImpl getTcpSipProvider(String ip) {
+		if (ObjectUtils.isEmpty(ip)) {
+			return null;
+		}
+		return tcpSipProviderMap.get(ip);
 	}
 
-	/**
-	 * <p>
-	 * Title: processTransactionTerminated
-	 * </p>
-	 * <p>
-	 * Description:
-	 * </p>
-	 * 
-	 * @param transactionTerminatedEvent
-	 */
-	@Override
-	public void processTransactionTerminated(TransactionTerminatedEvent transactionTerminatedEvent) {
-		// TODO Auto-generated method stub
-
+	public String getLocalIp(String deviceLocalIp) {
+		if (!ObjectUtils.isEmpty(deviceLocalIp)) {
+			return deviceLocalIp;
+		}
+		return getUdpSipProvider().getListeningPoint().getIPAddress();
 	}
-
-	/**
-	 * <p>
-	 * Title: processDialogTerminated
-	 * </p>
-	 * <p>
-	 * Description:
-	 * </p>
-	 * 
-	 * @param dialogTerminatedEvent
-	 */
-	@Override
-	public void processDialogTerminated(DialogTerminatedEvent dialogTerminatedEvent) {
-		// TODO Auto-generated method stub
-
-	}
-
 }

@@ -3,7 +3,7 @@
 
 # Log file
 *.log
-
+logs/*
 # BlueJ files
 *.ctxt
 
@@ -26,3 +26,5 @@ hs_err_pid*
 /.idea/
 /target/
 
+/src/main/resources/static/
+certificates
